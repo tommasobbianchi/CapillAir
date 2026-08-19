@@ -1,0 +1,90 @@
+# CapillAir NORTH-FACE ambient sensor — M5Stack AtomS3 + ENV IV (SHT40 + BMP280).
+#
+# Purpose: the TRUE outdoor reference. Until now "ambient" came from
+# weather.forecast_home, a forecast that refreshes in coarse steps (it jumped
+# 26.6 -> 28.5 C in five minutes across the crossover on 2026-08-19). Every
+# cavedio-vs-ambient conclusion rests on this number, so it needs measuring.
+#
+# NOT the same hardware as capillair-env / capillair-out: those are Atom Lite
+# (ESP32-PICO-D4, Grove on GPIO26/32, external USB-serial). This is an ESP32-S3
+# with native USB-JTAG and Grove on GPIO2/1. A straight clone of the other two
+# will not boot.
+#
+# No status LED: AtomS3 and AtomS3 Lite differ there (LCD vs SK6812 on GPIO35)
+# and it is going outside where nobody can see it. Dropped rather than guessed.
+#
+# Humidity is DELIBERATELY uncalibrated. The +4.879 %RH offset in capillair-out
+# was that unit's own measured deviation and must not be inherited.
+
+esphome:
+  name: capillair-north
+  friendly_name: CapillAir NORTH
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework:
+    type: arduino
+
+logger:
+  hardware_uart: USB_CDC      # S3 logs over native USB, not a UART bridge
+
+api:
+  encryption:
+    key: !secret api_key_capillair
+
+ota:
+  platform: esphome
+  password: !secret ota_password_capillair
+
+wifi:
+  networks:
+    - ssid: !secret wifi_ssid
+      password: !secret wifi_password
+    - ssid: !secret wifi_ssid_fallback
+      password: !secret wifi_password_fallback
+  power_save_mode: none
+  # An outdoor north wall puts masonry between this node and the AP. capillair-out
+  # already sits at -82 dB indoors, so expect worse and keep the link diagnosable.
+  fast_connect: false
+
+# Signal strength matters here: if this drops out we lose the reference, and a
+# silent gap is worse than a noisy one.
+sensor:
+  - platform: wifi_signal
+    name: "Segnale WiFi"
+    update_interval: 60s
+
+  - platform: sht4x          # SHT40 @ 0x44
+    address: 0x44
+    temperature:
+      name: "Temperatura"
+      id: temp_sht
+      accuracy_decimals: 2
+    humidity:
+      name: "Umidità"
+      id: hum_sht
+      accuracy_decimals: 2
+    update_interval: 30s
+
+  - platform: bmp280_i2c     # BMP280 @ 0x76
+    address: 0x76
+    temperature:
+      name: "Temperatura BMP"
+      id: temp_bmp
+      internal: true
+    pressure:
+      name: "Pressione"
+      id: pressure_bmp
+      accuracy_decimals: 1
+    update_interval: 30s
+
+  - platform: absolute_humidity
+    name: "Umidità Assoluta"
+    temperature: temp_sht
+    humidity: hum_sht
+
+i2c:
+  sda: GPIO2                 # AtomS3 Grove port
+  scl: GPIO1
+  scan: true                 # boot scan confirms 0x44 + 0x76 before trusting readings

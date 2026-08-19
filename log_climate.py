@@ -38,6 +38,12 @@ SENSORS = {
     "p1s_fan": "switch.controller_camera_p1s_ventola_riscaldatore",
     "p1s_auto": "switch.controller_camera_p1s_controllo_automatico_camera",
     # real measured outdoor, replacing the forecast once it is mounted on the north face
+    # north-face true ambient (UNCALIBRATED until co-located with capillair-env)
+    "north_t": "sensor.capillair_north_temperatura",
+    "north_rh": "sensor.capillair_north_umidita",
+    "north_ah": "sensor.capillair_north_umidita_assoluta",
+    "north_p": "sensor.capillair_north_pressione",
+    "north_wifi": "sensor.capillair_north_segnale_wifi",
     "out_real_t": "sensor.capillair_out_temperatura",
     "out_real_rh": "sensor.capillair_out_umidita",
     "out_real_ah": "sensor.capillair_out_umidita_assoluta",

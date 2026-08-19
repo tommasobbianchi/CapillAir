@@ -1,97 +1,117 @@
-# CapillAir — session handoff, 2026-08-19 12:30
+# CapillAir — handoff, 2026-08-19 22:40
 
-## What survives this reboot
+## THE HEADLINE: the passive loop dwarfs the VMC, and I missed it all day
 
-`Linger=yes` is set, so **user systemd timers restart automatically**. Verified before exit.
-
-| what | where | cadence | survives reboot |
-|---|---|---|---|
-| `capillair-climate.timer` | nativedev | 5 min → `data/climate.csv` | **yes** |
-| `capillair-window.timer` | nativedev | 10 min → window state to HA via MQTT | **yes** |
-| `capillair-report.timer` | nativedev | 13/17/20/23:00 → `reports/*.txt` | **yes** |
-| `capillair-env` (Atom, first floor) | WiFi → HA | 30 s | yes, independent |
-| `capillair-out` (Atom, cavedio) | WiFi → HA | 30 s | yes, independent |
-| CapillAir dashboard | HAOS | — | yes |
-| **Claude session Monitor** | session | 5 min | **NO — dies, re-arm if wanted** |
-
-Nothing needs restarting by hand. `systemctl --user list-timers | grep capillair` to confirm after boot.
-
-## The result so far — the hypothesis held
-
-**Claim under test:** the west cavedio is a large shaded thermal mass, so it damps and lags
-ambient rather than tracking it — which would make it an excellent VMC intake in the afternoon.
-
-**Confirmed, decisively** (09:33–12:23, post-settle):
+The house already runs a passive cooling circuit that owes nothing to the VMC:
 
 ```
-ambient  24.0 -> 29.9   span 5.90 C   peak 11:58
-cavedio  25.7 -> 26.2   span 0.49 C   peak 10:38
-DAMPING  92%
-gap at ambient peak: cavedio 26.22 vs ambient 29.90 = -3.68 C
+cavedio (26.8 C)  ->  interrato  ->  stairwell  ->  piano primo  -> out
 ```
 
-The shaft moved half a degree while outdoors moved six. It crossed from *warmer* than ambient
-(+1.56 at 09:00) to *colder* (−3.68 at 12:00) and keeps pulling ahead.
+Driven by the cavedio sitting **below the house 24 h a day**, not by outdoor air.
 
-**VMC contribution:** −67 W mean over 5.2 h (−0.34 kWh), currently −97 W, at an **assumed
-200 m³/h**. Scales linearly — real flow is still unmeasured. It is also **drying** the house
-(−0.27 g/m³ mean), so no moisture penalty.
+| mechanism | flow | power |
+|---|---|---|
+| **passive cavedio stack** | ~1160 m³/h | **~1090 W** |
+| VMC (bypass open, cavedio intake) | ~200 m³/h assumed | ~100 W |
 
-**Bypass OPEN is correct** and my earlier advice to close it in the day was wrong: it assumed the
-intake saw ambient. With an intake colder than indoors, the heat exchanger would destroy 75–80%
-of the benefit.
+I spent the day characterising the intake of the **smaller** mechanism while the bigger one
+ran unmeasured, because I assumed a sealed house. The garage–cavedio door and the interrato
+are open permanently; the only missing piece was a **top exit**.
 
-## Day timeline (2026-08-19)
+**Evidence it is real:** when the piano primo opened at 20:30, three rooms flipped sign
+within minutes — Camera1 P1 −0.06 → **−0.35 °C/h**, Camera2 +0.10 → **−0.24**, Soggiorno
++0.11 → **−0.23**. And the interrato sits at 28.6 while the taverna, *same level*, is 30.0:
+the interrato sensor is standing in the incoming cool stream.
 
-- 07:13 windows closed after the overnight purge (upper floors −1.8 to −2.0 °C; interrato −0.3)
-- ~08:00 VMC crossed into cooling
-- ~10:15–10:55 **ambient passed indoor — free-cooling window closed**, garage door became a liability
-- 12:00 ambient 29.9, cavedio 26.0, VMC −97 W
+## Window rule (now a service, notifies by itself)
 
-## Open items
+**Asymmetric on purpose:**
 
-1. **Measure the real VMC airflow.** Every wattage here is `×(flow/200)`. Until it's measured, the
-   magnitude is indicative, not quantitative.
-2. **North-face ambient sensor.** `weather.forecast_home` is a *forecast*, refreshing in coarse
-   steps — ambient jumped 26.6→28.5 in five minutes at 10:55. The single most decision-relevant
-   number in the system is currently not measured. Second Atom, north face, shaded, 30–50 cm off
-   the wall, 1.5–2 m up.
-3. Two unrelated binary sensors are unreliable. Tracked separately, out of scope here.
-4. **Confounds are larger than the signal.** Occupancy (+200…300 W), wet mopping (−680 W transient,
-   +5 g/m³). Hence the method pivot: measure the VMC's *driving force* (`T_cavedio − T_indoor`,
-   immune to occupancy) rather than trying to extract its footprint from the house curve.
-   Activity covariates are logged for masking.
-5. **P1S chamber probe is conditional.** Valid as a room proxy only while heater/auto are off —
-   both logged and flagged on the dashboard.
+- **OPEN** when outdoor < warmest occupied room − 1 °C. The hot rooms gain first and early
+  opening costs nothing. Tonight that was ~20:15–20:30.
+- **CLOSE** when outdoor > **house mean**. Today that was **11:58**. The house was actually
+  shut at **07:13 — about four hours early**, losing the coolest cheapest hours of the day.
+- **The interrato/cavedio never closes.** Only the top closes, and that is about **wind, not
+  temperature**: the stack is ~0.7 Pa, a 13 km/h breeze is 7.6 Pa, so an open top window
+  stops being a reliable exhaust. *This part is reasoned, not measured — the open question.*
 
-## Files
+`capillair-windows.service` (systemd user, `Restart=always`, linger on) notifies via HA →
+Telegram + Pixel. Both tested. It survives session end and reboot.
+
+## Reference-frame errors I made today — the pattern worth remembering
+
+Four times I picked a sensor for convenience instead of asking what the number represents:
+
+1. **Bypass**: told him to close it in the day, assuming the intake saw ambient. It sees the
+   cavedio, which is *colder* than indoors — closing it would destroy 75–80% of the benefit.
+2. **Window reference**: built the rule on the ENV IV, which runs **1.44 °C cooler than the
+   bedrooms** (0.77–1.89 range). It said "keep shut" while the occupied rooms were gaining.
+   His wife opened at 20:30 and was right; my alert fired at 20:53.
+3. **VMC delta**: when I fixed (2) I dragged the VMC baseline onto the warmest room too,
+   inflating −1.94 °C into −3.60. Its supply mixes house-wide → belongs on the ENV IV.
+4. **Stack inlet**: computed the stack against *outdoor* (29.6) when the inlet is the
+   **cavedio** (26.9). A 12× error in flow, 40× in power. He said "the chimney effect is
+   strong" and he was right.
+
+Also: I patched the watcher while it was running and it kept emitting old numbers for 90
+minutes. **Editing a file does not reload a running process.**
+
+## Measured results
 
 ```
-~/projects/CapillAir/
-  RECIPE.md                    evaporative cooling column design (printed enclosure + bought pad)
-  REVIEW_fable_porous_fdm.md   demolition of the original salt-leach/gypsum proposal
-  log_climate.py               5-min logger, self-migrates when columns change
-  analyse.py                   analysis; arg = post-settle start time, default 09:30
-  data/climate.csv             38 columns
-  reports/                     timer snapshots (gitignored)
-  esphome/capillair-out.yaml   cavedio node, RH offset +4.879 documented inline
-  esphome/secrets.yaml         REAL CREDENTIALS — gitignored, never commit
+DAMPING 82-93%   ambient span 9.40 C -> cavedio span 0.49-1.66 C
+gap at ambient peak: cavedio 27.4 vs ambient 33.4 = -6.0 C
+VMC: -71 W mean over 9.8 h = -0.70 kWh; moisture NEUTRAL over the day (+0.06 g/m3)
+altitude 290 m (station 976.6 vs sea-level 1010.9) -> every watt is x0.942 vs the
+  sea-level 0.335 constant; analyse.py now derives it from the barometer
+evaporative ceiling gain from altitude: +0.06..0.15 C — negligible, does not change RECIPE.md
 ```
 
-**OTA to the cavedio node needs a tunnel** (nativedev is on Tailscale, node is on the home LAN):
+## Hardware
+
+| node | board | notes |
+|---|---|---|
+| `capillair-env` | Atom Lite (ESP32-PICO) | first floor, reference for calibration |
+| `capillair-out` | Atom Lite | cavedio, VMC intake. **RH +4.879 offset applied in firmware** |
+| `capillair-north` | **AtomS3 (ESP32-S3)** | north face. I2C GPIO2/1, USB-CDC, no LED. **RH UNCALIBRATED** |
+| P1S chamber probe | Atom Lite + SHT4x | printer room. Valid only while heater/auto off and NOT printing |
+
+**OTA needs a tunnel** (nativedev is on Tailscale, nodes are on the home LAN):
 
 ```bash
 cd ~/projects/CapillAir/esphome
 sshpass -p "$HAOS_PASS" ssh -N -L 3232:192.168.0.184:3232 hassio@100.71.237.68 &
 TPID=$!; sleep 4
-esphome run capillair-out.yaml --device 127.0.0.1     # `run`, NOT `upload` — upload does not compile
+esphome run capillair-out.yaml --device 127.0.0.1    # `run`, NOT `upload` — upload does not compile
 kill $TPID
 ```
 
-`esphome upload` pushes the *existing* binary and reports success without applying yaml changes.
-That cost a round trip today.
+## Services (all survive reboot, linger on)
 
-## Next check
+| unit | cadence |
+|---|---|
+| `capillair-climate.timer` | 5 min → `data/climate.csv` (43 cols) |
+| `capillair-window.timer` | 10 min → window classifier → MQTT → HA |
+| `capillair-report.timer` | 13/17/20/23:00 → `reports/` |
+| `capillair-windows.service` | continuous, notifies open/close |
 
-`capillair-report.timer` fires at 13:00, 17:00, 20:00, 23:00 into `reports/`. The 20:00 and 23:00
-ones matter most: they cover the evening peak and the start of the night purge.
+## Open items, priority order
+
+1. **The passive loop is unquantified.** ~1 kW is a calculation, not a measurement. It is the
+   dominant mechanism and deserves the instrumentation the VMC got.
+2. **Real VMC airflow** still assumed at 200 m³/h. Everything scales linearly.
+3. **North sensor humidity uncalibrated** — 30 min beside `capillair-env`, then apply its own
+   offset. Do NOT inherit capillair-out's +4.879.
+4. **North sensor has no radiation shield** — double Stevenson printing. Baseline banked in
+   `data/north_unshielded_until.txt` so the step change measures the radiative error.
+5. **Close threshold (house mean) is a judgement, not validated.** Tomorrow is the first test.
+6. **Wind-vs-stack argument is theoretical.** Test: leave the top on vasistas through a calm
+   afternoon and see whether the stack holds direction.
+7. Two unrelated binary sensors are unreliable. Tracked separately, out of scope here.
+8. Two unrelated binary sensors are unreliable. Tracked separately, out of scope here.
+
+## Tomorrow
+
+**Leave everything open overnight and through the morning.** The service will say when to
+close the top (~11:00–12:00, on the measured mean). Interrato and cavedio stay open always.
