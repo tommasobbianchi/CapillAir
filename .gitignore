@@ -1,0 +1,6 @@
+# real credentials pulled from HAOS — never commit
+esphome/secrets.yaml
+esphome/.esphome/
+esphome/*.bin
+reports/
+data/*.bak
