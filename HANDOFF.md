@@ -112,8 +112,13 @@ calendar day — the night purge straddles midnight and `startswith(today)` disc
 5. **Real VMC airflow** still assumed at 200 m3/h. Everything scales linearly.
 6. **North sensor humidity uncalibrated** — 30 min beside `capillair-env`, its OWN offset.
    Do NOT inherit capillair-out's +4.879.
-7. **North sensor has no radiation shield** — double Stevenson printing; baseline banked in
-   `data/north_unshielded_until.txt`.
+7. ~~North sensor has no radiation shield~~ **DONE.** The double Stevenson screen was
+   fitted **2026-08-19 14:25:22** — that is what `data/north_unshielded_until.txt` records:
+   unshielded *until* that timestamp. Two handoffs misread it as "shield still printing" and
+   attached a bogus caveat to every north reading, including through the 2026-08-20 rain
+   (a shielded sensor does not get wet, so those readings are valid dry-bulb).
+   The step change is NOT cleanly measurable: only 9 pre-shield samples over two midday
+   hours, against the forecast as reference. Do not quote a shield correction.
 8. **Wind-vs-stack argument is untestable**: `out_wind` is the forecast entity, flat at
    20.9 km/h all night. It measures nothing. Needs a real anemometer or drop the argument.
 9. Two unrelated binary sensors are unreliable. Tracked separately, out of scope here.
