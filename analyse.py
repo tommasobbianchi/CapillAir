@@ -14,21 +14,27 @@ def k_air(P_hPa, T_C):
     measured barometer rather than assumed."""
     rho = P_hPa*100/(287.05*(273.15+T_C))
     return rho*1006/3600
-# The cavedio unit was mounted ~08:40 carrying indoor heat and took ~90 min to reach
-# shaft temperature. Damping/lag stats before this are meaningless, so they start here.
-SETTLE_FROM = sys.argv[1] if len(sys.argv) > 1 else "09:30"
+# The cavedio unit was mounted 2026-08-19 ~08:40 carrying indoor heat and took ~90 min
+# to reach shaft temperature. Damping/lag stats before this are meaningless.
+# Full ISO timestamp, not a time-of-day: the overnight purge spans midnight and a
+# "HH:MM >= 09:30" string compare silently dropped every hour after 00:00.
+SETTLE_FROM = "2026-08-19T09:30"
+# Window of rows to analyse: last N hours, NOT the calendar day. The interesting
+# event (night purge) straddles midnight, which a startswith(today) filter cut in half.
+HOURS = float(sys.argv[1]) if len(sys.argv) > 1 else 24.0
 
 def f(r, k):
     try: return float(r[k])
     except (ValueError, KeyError, TypeError): return None
 
 rows = [r for r in csv.DictReader(CSV.open())]
-today = datetime.date.today().isoformat()
-rows = [r for r in rows if r["ts"].startswith(today)]
+cutoff = (datetime.datetime.now() - datetime.timedelta(hours=HOURS)).isoformat()
+rows = [r for r in rows if r["ts"] >= cutoff]
 if not rows:
-    print("no rows for today"); sys.exit(1)
+    print(f"no rows in the last {HOURS:g} h"); sys.exit(1)
+print(f"window: last {HOURS:g} h  ({rows[0]['ts'][:16]} -> {rows[-1]['ts'][:16]}, {len(rows)} rows)")
 
-print(f"=== CapillAir — {today}, {rows[0]['ts'][11:16]} to {rows[-1]['ts'][11:16]} "
+print(f"=== CapillAir — {rows[0]['ts'][:16]} to {rows[-1]['ts'][:16]} "
       f"({len(rows)} samples) ===\n")
 
 EXC = []
@@ -68,8 +74,11 @@ for hh in sorted(H):
     print(f"  {hh}  {fmt(amb)}  {fmt(cav)}   {fmt(dca,8)}    {fmt(ind)}  {fmt(dci,8)}  {fmt(w,7,0)}  {fmt(sg)}  {fmt(pr)}")
 
 # --- the falsifiable claim ----------------------------------------------------
-st = [r for r in rows if r["ts"][11:16] >= SETTLE_FROM]
-amb = [(r["ts"][11:16], f(r,"out_t")) for r in st if f(r,"out_t") is not None]
+st = [r for r in rows if r["ts"] >= SETTLE_FROM]
+# Prefer the MEASURED north node over the forecast, same rule as the hourly table
+# above. Using out_t here silently computed the damping against a coarse forecast.
+amb = [(r["ts"][11:16], f(r,"north_t")) for r in st if f(r,"north_t") is not None] \
+      or [(r["ts"][11:16], f(r,"out_t")) for r in st if f(r,"out_t") is not None]
 cav = [(r["ts"][11:16], f(r,"out_real_t")) for r in st if f(r,"out_real_t") is not None]
 print(f"\n=== PREDICTION UNDER TEST: cavedio = damped lagged mass, not a tracker "
       f"(from {SETTLE_FROM}, post-settle) ===")
