@@ -49,10 +49,12 @@ SENSORS = {
     "out_real_ah": "sensor.capillair_out_umidita_assoluta",
     "out_real_p": "sensor.capillair_out_pressione",
     "window_p1": "sensor.piano_primo_finestra",
-    # Activity covariates. The house is occupied and working: people (~100 W + ~50 g/h
-    # each) and wet-mopping (a transient evaporative load of several hundred W) are
-    # BIGGER than the VMC effect we are trying to measure, so intervals have to be
-    # markable rather than averaged over blindly.
+    # The occupancy covariates that used to sit here (motion, presence, garage door)
+    # are NOT logged in the published version of this project: they describe a specific
+    # house rather than the physics. They mattered because people (~100 W + ~50 g/h each)
+    # and wet-mopping (several hundred W transient) are BIGGER than the VMC effect being
+    # measured -- which is exactly why the method pivoted to the VMC's DRIVING FORCE
+    # (T_cavedio - T_indoor), immune to occupancy, instead of the whole-house curve.
 }
 
 def get(path):

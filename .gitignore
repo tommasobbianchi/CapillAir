@@ -5,3 +5,6 @@ esphome/*.bin
 reports/
 data/*.bak
 reports/*.log
+
+# Claude Code session dir
+.claude/

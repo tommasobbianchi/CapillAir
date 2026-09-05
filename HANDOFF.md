@@ -94,7 +94,7 @@ altitude 290 m -> every watt is x0.942 vs the sea-level 0.335 constant
 
 | unit | cadence |
 |---|---|
-| `capillair-climate.timer` | 5 min -> `data/climate.csv` (43 cols) |
+| `capillair-climate.timer` | 5 min -> `data/climate.csv` (35 cols) |
 | `capillair-window.timer` | 10 min -> classifier -> MQTT -> HA |
 | `capillair-report.timer` | 13/17/20/23:00 -> `reports/` |
 | `capillair-windows.service` | continuous, notifies open/close -> `reports/windows.log` |
@@ -122,7 +122,9 @@ calendar day — the night purge straddles midnight and `startswith(today)` disc
 8. **Wind-vs-stack argument is untestable**: `out_wind` is the forecast entity, flat at
    20.9 km/h all night. It measures nothing. Needs a real anemometer or drop the argument.
 9. Two unrelated binary sensors are unreliable. Tracked separately, out of scope here.
-10. **No git remote configured** — `848e810` and `9de651c` have never left this machine.
+10. ~~No git remote configured~~ **DONE.** Published 2026-09-05. History was rewritten
+    before publication to drop the occupancy covariates and the WiFi SSIDs, so every
+    commit hash quoted in older sections of this file is stale.
 
 ## Tonight
 
