@@ -8,3 +8,4 @@ reports/*.log
 
 # Claude Code session dir
 .claude/
+__pycache__/
