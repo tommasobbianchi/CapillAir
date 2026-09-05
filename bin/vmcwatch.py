@@ -12,6 +12,12 @@ TOK = (Path.home()/".local/share/capillair-window/env").read_text().split("HA_TO
 OPEN_MARGIN  = 1.0   # only worth opening once outdoor is this far BELOW the warmest room
 HYST         = 0.3   # keeps the open threshold strictly below the close threshold
 BANK = Path.home()/".local/share/capillair-window/banked_min.json"
+# The ONLY rain signal available: weather.forecast_home. There is no physical rain sensor
+# on this house. It is coarse and laggy -- on 2026-08-20 it read "rainy" at 20:04 as rain
+# began, then flipped back to "cloudy" at 20:59 while it was still raining. So it is used
+# ONLY to suppress a new open and to warn once; it never forces a close. Which windows are
+# sheltered is the user's knowledge, not a number we hold.
+RAIN = {"rainy", "pouring", "lightning-rainy", "hail", "snowy-rainy"}
 
 def states():
     r = urllib.request.Request("http://100.71.237.68:8123/api/states",
@@ -21,7 +27,7 @@ def notify(title, msg):
     """Push through Home Assistant. The whole point of running this as a service is
     that the alert must arrive whether or not a Claude session is up."""
     for svc, payload in (("telegram", {"title": title, "message": msg}),
-                         ("mobile_app_pixel_9a_tommy", {"title": title, "message": msg})):
+                         ("mobile_app_pixel_9a", {"title": title, "message": msg})):
         try:
             r = urllib.request.Request(
                 "http://100.71.237.68:8123/api/services/notify/" + svc,
@@ -37,7 +43,7 @@ def num(s, e):
     v = s[e]["state"]
     return None if v in ("unavailable", "unknown") else float(v)
 
-prev_open = None; last = 0; fails = 0
+prev_open = None; prev_rain = False; last = 0; last_rain_warn = 0; fails = 0
 hist = []   # (epoch, outdoor) for the last hour, to tell the morning ramp from the evening fall
 while True:
     try:
@@ -58,6 +64,8 @@ while True:
         ind  = max(rooms) if rooms else env          # window decision: warmest room
         # VMC delta stays referenced to the ENV IV: its supply mixes house-wide, and
         # switching reference mid-day would break comparability with the whole log.
+        cond = s.get("weather.forecast_home", {}).get("state", "")
+        raining = cond in RAIN
         oah  = num(s, "sensor.capillair_north_umidita_assoluta")
         iah  = num(s, "sensor.capillair_env_iv_umidita_assoluta")
         cah  = num(s, "sensor.capillair_out_umidita_assoluta")
@@ -107,12 +115,26 @@ while True:
         span = time.time() - hist[0][0]
         trend = (out - hist[0][1]) if span >= 5400 else None   # None = not enough history
         falling = trend is not None and trend <= -0.3
+        # SEED FROM REALITY, not from the rule. On a restart prev_open is None, and deriving
+        # it from the open rule asks "would I open now?", which in a rising morning is False
+        # even with the windows wide open -- so the morning CLOSE would never fire. The
+        # camera classifier knows the actual state; fall back to the rule only if it doesn't.
+        if prev_open is None:
+            w = s.get("sensor.piano_primo_finestra", {}).get("state", "")
+            if w in ("aperta", "vasistas"): prev_open = True
+            elif w == "chiusa":             prev_open = False
+            print(f"[{time.strftime('%H:%M')}] seeded windows={'OPEN' if prev_open else 'shut'} "
+                  f"from classifier state '{w or 'unavailable'}'")
         if prev_open:                        # currently open -> close on the BANKED min
             should_open = out < close_thr
         else:                                # currently shut -> open only on a real fall.
             # No history yet (restart) => stay shut. Fails closed: a missed open costs one
             # evening, a wrong open imports heat into a house that spent all night cooling.
-            should_open = out < open_thr and falling
+            # Rain gates the shut->open transition ONLY. It deliberately does not appear in
+            # the prev_open branch: rain does not force a close. The 2026-08-20 rain gave the
+            # best cooling of the campaign (-6.6 C gradient), so auto-closing on it would
+            # have thrown away the best hours we have measured.
+            should_open = out < open_thr and falling and not raining
         if prev_open and coolest < banked:   # still open and still improving -> bank it
             banked = coolest
             BANK.write_text(json.dumps({"min": banked, "at": time.strftime("%Y-%m-%dT%H:%M")}))
@@ -147,6 +169,18 @@ while True:
                       f"below the house all day and drives the passive stack. Closing the top is about WIND, "
                       f"not temperature: the stack is ~0.7 Pa and a 13 km/h breeze is 7.6 Pa, so an open top "
                       f"window stops being a reliable exhaust.")
+        # Warn ONCE when rain starts with the windows open. Not a close instruction: only
+        # the user knows which openings are sheltered.
+        # The forecast flip-flops (rainy -> cloudy -> rainy inside one shower), so a bare
+        # edge-trigger warned 3x for one event in replay. One warning per 3 h.
+        if raining and not prev_rain and prev_open and time.time() - last_rain_warn > 10800:
+            last_rain_warn = time.time()
+            m = (f"PIOGGIA ({cond}) con le finestre aperte. Esterno {out:.1f}, casa {ind:.1f}. "
+                 f"Chiudere o mettere a vasistas SOLO le finestre esposte - l'aria di pioggia "
+                 f"raffredda bene, non chiudere tutto.")
+            print(f"[{time.strftime('%H:%M')}] *** RAIN with windows open *** {cond}, outdoor {out:.1f}")
+            notify("PIOGGIA - FINESTRE APERTE", m)
+        prev_rain = raining
         prev_open = should_open
         if time.time() - last > 5400:
             v = f"{cav-env:+.2f}" if (cav is not None and env is not None) else "?"
