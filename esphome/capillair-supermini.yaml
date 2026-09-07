@@ -1,0 +1,63 @@
+# CapillAir on ESP32-C3 SuperMini + SHT41 — mains/USB-powered T+RH+absolute-humidity node.
+#
+# Unlike the battery Seeed XIAO node (seeed-t-hr-sensor), this one is ALWAYS on USB:
+#   - no battery ADC, no USB-detect, no deep sleep, no safe_mode boot tuning.
+#   - SHT41 read on its own 60s cadence; absolute_humidity follows it.
+#   - CapillAir conventions: absolute_humidity (g/m3) + Italian entity names.
+#
+# Hardware:
+#   ESP32-C3 SuperMini (Lolin/Wemos-style). Board: esp32-c3-devkitm-1.
+#   I2C: SHT41 on SDA=GPIO8, SCL=GPIO9 (the SuperMini's default I2C pins).
+#   Power: USB-C. 5V pad can feed the SHT41 VIN only through the onboard regulator logic
+#          check the specific breakout; never 5V into a 3V3-only pad.
+
+esphome:
+  name: capillair-supermini
+  friendly_name: CapillAir SuperMini
+
+esp32:
+  board: esp32-c3-devkitm-1
+  variant: esp32c3
+  framework:
+    type: arduino
+
+logger:
+  baud_rate: 115200
+
+api:
+  encryption:
+    key: !secret api_key_capillair
+
+ota:
+  - platform: esphome
+    password: !secret ota_password_capillair
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+i2c:
+  sda: GPIO8
+  scl: GPIO9
+  frequency: 100kHz
+
+sensor:
+  - platform: sht4x
+    id: sht
+    update_interval: 60s
+    temperature:
+      name: Temperature
+      id: temp_sht
+      filters:
+        - offset: 0.0
+    humidity:
+      name: Humidity
+      id: hum_sht
+      filters:
+        - offset: 0.0
+
+  # CapillAir signature: absolute humidity (g/m3), independent of temperature swings.
+  - platform: absolute_humidity
+    name: Umidità Assoluta
+    temperature: temp_sht
+    humidity: hum_sht

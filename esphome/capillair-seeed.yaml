@@ -1,0 +1,178 @@
+# CapillAir on Seeed XIAO ESP32-C3 + SHT41 — battery-powered T+RH+absolute-humidity node.
+#
+# Adapted from the standalone seeed-t-hr-sensor node to the CapillAir convention:
+#   - absolute_humidity (g/m3) added next to temperature/relative humidity, the
+#     physically meaningful water-content channel CapillAir computes on every node.
+#   - entity naming follows CapillAir (Temperatura / Umidità / Umidità Assoluta).
+#   - battery + 15 min deep sleep preserved from the source node (this is a room
+#     sensor; USB is the "keep it awake" escape hatch, not the normal mode).
+#
+# Hardware (unchanged from seeed-t-hr-sensor):
+#   I2C: SHT41 on SDA=GPIO5 (pad D3), SCL=GPIO6 (pad D4), breakout pull-ups on board.
+#   LiPo on the B+/B- pads; onboard ETA4054 charges it. External IPEX antenna.
+#   Battery divider B+ --330k/220k--> D1/GPIO3 (x2.564). USB-detect 5V --100k/150k--> D2/GPIO4.
+
+esphome:
+  name: seeed-t-hr-sensor
+  # Room name, not board name: this is what HA shows and what the entity ids derive
+  # from. The node `name:` above stays seeed-t-hr-sensor — it is the hostname and the
+  # OTA target, and renaming it buys nothing but a chance to lose the board.
+  friendly_name: Lavanderia
+  # Failsafe: sleep even if HA never connects. Deliberately NOT deep_sleep's run_duration,
+  # which fires on a blind timer and would sleep the board with USB plugged in — killing
+  # the "plug it in to keep it awake" escape hatch.
+  on_boot:
+    priority: -100
+    then:
+      - component.update: bat_v
+      - delay: 30s
+      - if:
+          condition:
+            and:
+              - switch.is_off: prevent_sleep
+              - binary_sensor.is_off: usb_power
+          then:
+            - logger.log: "No client connected in 30s: sleeping anyway"
+            - deep_sleep.enter: sleep_1
+
+esp32:
+  board: seeed_xiao_esp32c3
+  variant: esp32c3
+  framework:
+    type: esp-idf
+
+logger:
+  baud_rate: 115200
+
+api:
+  encryption:
+    key: !secret api_key_capillair
+  on_client_connected:
+    - component.update: sht
+    - component.update: bat_v
+    - delay: 2s
+    - if:
+        condition:
+          and:
+            - switch.is_off: prevent_sleep
+            - binary_sensor.is_off: usb_power   # USB in = stay awake
+        then:
+          - deep_sleep.enter: sleep_1
+
+ota:
+  - platform: esphome
+    password: !secret ota_password_capillair
+
+safe_mode:
+  boot_is_good_after: 5s
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  fast_connect: true
+  manual_ip:
+    static_ip: 192.168.178.210
+    gateway: 192.168.178.1
+    subnet: 255.255.255.0
+
+i2c:
+  sda: GPIO5
+  scl: GPIO6
+  frequency: 100kHz
+
+sensor:
+  - platform: sht4x
+    id: sht
+    update_interval: 60s
+    temperature:
+      name: Temperature
+      id: temp_sht
+      filters:
+        - offset: 0.0
+    humidity:
+      name: Humidity
+      id: hum_sht
+      filters:
+        - offset: 0.0
+
+  # CapillAir signature: absolute humidity (g/m3), independent of temperature swings.
+  # Published by sht's on_client_connected nudge, like temperature; on USB it follows
+  # the SHT's own 60s cadence.
+  - platform: absolute_humidity
+    name: Umidità Assoluta
+    temperature: temp_sht
+    humidity: hum_sht
+
+  - platform: adc
+    id: bat_v
+    name: Battery Voltage
+    pin: GPIO3
+    attenuation: 12db
+    update_interval: 60s
+    accuracy_decimals: 3
+    samples: 16
+    filters:
+      - multiply: 2.564
+    on_value:
+      then:
+        - component.update: bat_pct
+        - if:
+            condition:
+              and:
+                - lambda: 'return x < 3.40f;'
+                - binary_sensor.is_off: usb_power
+            then:
+              - logger.log: "Battery below 3.40V: parking until USB is connected"
+              - deep_sleep.enter:
+                  id: sleep_1
+                  sleep_duration: 24h
+
+  - platform: template
+    id: bat_pct
+    name: Battery
+    device_class: battery
+    unit_of_measurement: '%'
+    accuracy_decimals: 0
+    update_interval: never
+    lambda: |-
+      static const float V[] = {3.30,3.50,3.60,3.68,3.74,3.77,3.82,3.87,3.92,3.98,4.06,4.20};
+      static const float P[] = {   0,   3,   5,  10,  20,  30,  50,  60,  70,  80,  90, 100};
+      float v = id(bat_v).state;
+      if (isnan(v) || v < 2.5f) return NAN;
+      if (v <= V[0]) return 0.0f;
+      for (int i = 1; i < 12; i++)
+        if (v < V[i])
+          return P[i-1] + (P[i] - P[i-1]) * (v - V[i-1]) / (V[i] - V[i-1]);
+      return 100.0f;
+
+binary_sensor:
+  - platform: gpio
+    id: usb_power
+    name: USB Power
+    device_class: plug
+    pin:
+      number: GPIO4
+      allow_other_uses: true
+    on_release:
+      - if:
+          condition:
+            switch.is_off: prevent_sleep
+          then:
+            - logger.log: "USB removed: entering the duty cycle"
+            - deep_sleep.enter: sleep_1
+
+switch:
+  - platform: template
+    name: Prevent Deep Sleep
+    id: prevent_sleep
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    entity_category: config
+
+deep_sleep:
+  id: sleep_1
+  sleep_duration: 15min
+  wakeup_pin:
+    number: GPIO4
+    allow_other_uses: true
+  wakeup_pin_mode: IGNORE
