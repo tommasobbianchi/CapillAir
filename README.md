@@ -63,7 +63,7 @@ wrong open imports heat into a house that spent all night cooling.
 | `log_climate.py` | polls Home Assistant every 5 min → `data/climate.csv` |
 | `bin/vmcwatch.py` | the live advisor; notifies open/close through HA |
 | `analyse.py` | rolling 24 h analysis (`analyse.py 48` for 48 h) |
-| `esphome/` | three ESPHome nodes: ambient, cavedio/VMC intake, north-face outdoor |
+| `esphome/` | ESPHome nodes: ambient, cavedio/VMC intake, north-face outdoor, plus two SHT41 device targets (battery Seeed XIAO C3, USB SuperMini C3) |
 | `HANDOFF.md` | running session log, including the errors |
 | `RECIPE.md` | build notes for the sensor nodes |
 
